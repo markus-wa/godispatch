@@ -61,22 +61,22 @@ func registerHandlers(d *dp.Dispatcher) *result {
 	res := &result{}
 
 	// string handler
-	d.RegisterHandler(reflect.TypeOf(""), func(msg interface{}) {
+	d.RegisterHandler(reflect.TypeOf((*string)(nil)).Elem(), func(msg interface{}) {
 		res.strVal = msg.(string)
 		fmt.Println("handled string", res.strVal)
 	})
 	// int handler
-	d.RegisterHandler(reflect.TypeOf(0), func(obj interface{}) {
+	d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(obj interface{}) {
 		res.intVal = obj.(int)
 		fmt.Println("handled int", res.intVal)
 	})
 	// float32 handler
-	d.RegisterHandler(reflect.TypeOf(float32(0)), func(obj interface{}) {
+	d.RegisterHandler(reflect.TypeOf((*float32)(nil)).Elem(), func(obj interface{}) {
 		res.f32Val = obj.(float32)
 		fmt.Println("handled float32", res.f32Val)
 	})
 	// float64 handler
-	d.RegisterHandler(reflect.TypeOf(float64(0)), func(obj interface{}) {
+	d.RegisterHandler(reflect.TypeOf((*float64)(nil)).Elem(), func(obj interface{}) {
 		res.f64Val = obj.(float64)
 		fmt.Println("handled float64", res.f64Val)
 	})
@@ -90,7 +90,7 @@ func registerHandlers(d *dp.Dispatcher) *result {
 		res.aVal = obj.(A)
 		fmt.Println("handled A", res.aVal)
 	})
-	// pointer handler
+	// pointer handler (no reflect.Type.Elem() call)
 	d.RegisterHandler(reflect.TypeOf((*B)(nil)), func(obj interface{}) {
 		res.bPtrVal = obj.(*B)
 		fmt.Println("handled *B", res.bPtrVal)
@@ -186,5 +186,44 @@ func TestStructPointer(t *testing.T) {
 	if !res.equal(exp) {
 		fmt.Println("expected ", exp, "got", res)
 		t.Fail()
+	}
+}
+
+// Benchmarks showing that you should always use reflect.TypeOf((*type)(nil)).Elem() instead of creating instances
+// It gives 2x-3x performance
+
+func BenchmarkTypeOfEmptyString(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = reflect.TypeOf("")
+	}
+}
+
+func BenchmarkTypeOfStringPtrElem(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = reflect.TypeOf((*string)(nil)).Elem()
+	}
+}
+
+func BenchmarkTypeOfZeroInt(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = reflect.TypeOf(0)
+	}
+}
+
+func BenchmarkTypeOfIntPtrElem(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = reflect.TypeOf((*int)(nil)).Elem()
+	}
+}
+
+func BenchmarkTypeOfEmptyStruct(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = reflect.TypeOf(A{})
+	}
+}
+
+func BenchmarkTypeOfStructPtrElem(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = reflect.TypeOf((*A)(nil)).Elem()
 	}
 }
