@@ -57,6 +57,13 @@ func (r result) equal(r2 result) bool {
 	return b
 }
 
+func assertResult(t *testing.T, res *result, exp result) {
+	if !res.equal(exp) {
+		fmt.Println("expected ", exp, "got", res)
+		t.Fail()
+	}
+}
+
 func registerHandlers(d *dp.Dispatcher) *result {
 	res := &result{}
 
@@ -104,11 +111,7 @@ func TestString(t *testing.T) {
 
 	val := "test"
 	d.Dispatch(val)
-	exp := result{strVal: val}
-	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
-		t.Fail()
-	}
+	assertResult(t, res, result{strVal: val})
 }
 
 func TestInt(t *testing.T) {
@@ -117,11 +120,7 @@ func TestInt(t *testing.T) {
 
 	val := 13
 	d.Dispatch(val)
-	exp := result{intVal: val}
-	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
-		t.Fail()
-	}
+	assertResult(t, res, result{intVal: val})
 }
 
 func TestFloat32(t *testing.T) {
@@ -130,11 +129,7 @@ func TestFloat32(t *testing.T) {
 
 	val := float32(1.23)
 	d.Dispatch(val)
-	exp := result{f32Val: val}
-	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
-		t.Fail()
-	}
+	assertResult(t, res, result{f32Val: val})
 }
 
 func TestFloat64(t *testing.T) {
@@ -143,11 +138,7 @@ func TestFloat64(t *testing.T) {
 
 	val := 9.87
 	d.Dispatch(val)
-	exp := result{f64Val: val}
-	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
-		t.Fail()
-	}
+	assertResult(t, res, result{f64Val: val})
 }
 
 func TestStructA(t *testing.T) {
@@ -156,11 +147,7 @@ func TestStructA(t *testing.T) {
 
 	val := A{val: 17}
 	d.Dispatch(val)
-	exp := result{abVal: val, aVal: val}
-	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
-		t.Fail()
-	}
+	assertResult(t, res, result{abVal: val, aVal: val})
 }
 
 func TestStructB(t *testing.T) {
@@ -169,11 +156,7 @@ func TestStructB(t *testing.T) {
 
 	val := B{val: "bVal"}
 	d.Dispatch(val)
-	exp := result{abVal: val}
-	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
-		t.Fail()
-	}
+	assertResult(t, res, result{abVal: val})
 }
 
 func TestStructPointer(t *testing.T) {
@@ -182,11 +165,37 @@ func TestStructPointer(t *testing.T) {
 
 	val := &B{val: "bPtrVal"}
 	d.Dispatch(val)
-	exp := result{abVal: val, bPtrVal: val}
-	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
+	assertResult(t, res, result{abVal: val, bPtrVal: val})
+}
+
+func TestQueues(t *testing.T) {
+	d := dp.Dispatcher{}
+	res := registerHandlers(&d)
+
+	q := make(chan interface{})
+
+	d.AddQueues(q)
+	strVal := "txt"
+	q <- strVal
+	exp := result{strVal: strVal}
+	d.SyncAllQueues()
+	assertResult(t, res, exp)
+
+	d.RemoveQueues(q)
+	select {
+	case q <- 10:
+		// Nobody should be receiving on this channel after removal
 		t.Fail()
+	default:
+		// nop
 	}
+
+	d.AddQueues(q)
+	f32Val := float32(0.5)
+	q <- f32Val
+	exp.f32Val = f32Val
+	d.SyncAllQueues()
+	assertResult(t, res, exp)
 }
 
 // Benchmarks showing that you should always use reflect.TypeOf((*type)(nil)).Elem() instead of creating instances

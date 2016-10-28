@@ -3,6 +3,10 @@ This is a general purpose object dispatcher for go.
 
 It can be used to either asynchronously dispatch queues of objects or synchronously dispatch single objects to multiple handlers.
 
+## Go Get
+
+	go get github.com/markus-wa/godispatch
+
 ## Example
 ```go
 import (
@@ -40,7 +44,7 @@ type Event struct {
 	message   string
 }
 
-type TriggerEvent struct {}
+type TriggerEvent struct{}
 
 func main() {
 	d := dp.Dispatcher{}
@@ -61,9 +65,7 @@ func main() {
 	q3 := make(chan interface{}, 5)
 
 	// Add queues to dispatcher
-	d.AddQueue(q)
-	d.AddQueue(q2)
-	d.AddQueue(q3)
+	d.AddQueues(q, q2, q3)
 
 	// Send some events
 	for i := 0; i < 10; i++ {
@@ -75,10 +77,18 @@ func main() {
 		d.SyncQueues(q)
 		// Do stuff that requires events in q (but not q2 & q3) to be handled
 	}
-	d.SyncQueues(q2, q3)
+	d.SyncAllQueues()
 	// Do stuff that requires events of q, q2 & q3 to be handled
 
 	// Maybe send some more events . . .
-	q <- Event{-1, "xyz"}
+	q <- TriggerEvent{}
+
+	// Remove queues q & q2
+	d.RemoveQueues(q, q2)
+
+	q3 <- Event{}
+
+	// Also remove q3
+	d.RemoveAllQueues()
 }
 ```
