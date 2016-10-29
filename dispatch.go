@@ -1,8 +1,8 @@
-// Package godispatch provides a general purpose object dispatcher
+// Package dispatch provides a general purpose object dispatcher
 // It can be used to asynchronously dispatch queues (channels)
 // or synchronously dispatch single objects
 // For example one could use it to dispatch events or messages
-package godispatch
+package dispatch
 
 import (
 	"errors"
@@ -42,7 +42,10 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 
 	for _, h := range d.cachedHandlers[t] {
 		if h != nil {
+			// Allow adding more handlers in handle function
+			d.handlerLock.Unlock()
 			h(object)
+			d.handlerLock.Lock()
 		}
 	}
 }
@@ -167,6 +170,7 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 
 // RegisterHandler registers an object handler for a type of objects
 // If an object's type is assignable to objectType (reflect.Type.assignableTo), the handler will receive the object
+// If the handler registers a new handler, the new handler will only be active for new Dispatch calls
 // Calling this method clears the internal type/handler mapping cache for interface types
 func (d *Dispatcher) RegisterHandler(objectType reflect.Type, handler Handler) {
 	d.handlerLock.Lock()

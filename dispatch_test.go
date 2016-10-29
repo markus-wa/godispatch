@@ -1,4 +1,4 @@
-package godispatch_test
+package dispatch_test
 
 import (
 	"fmt"
@@ -196,6 +196,38 @@ func TestQueues(t *testing.T) {
 	exp.f32Val = f32Val
 	d.SyncAllQueues()
 	assertResult(t, res, exp)
+}
+
+func TestAddHandlerInHandler(t *testing.T) {
+	d := dp.Dispatcher{}
+	h1 := 0
+	h2 := 0
+	h3 := 0
+	d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i interface{}) {
+		fmt.Println("handled", i, "in h1")
+		if h1 == 0 {
+			d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i2 interface{}) {
+				fmt.Println("handled", i2, "in h2")
+				if h2 == 0 {
+					d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i3 interface{}) {
+						fmt.Println("handled", i3, "in h3")
+						h3++
+					})
+				}
+				h2++
+			})
+		}
+		h1++
+	})
+
+	d.Dispatch(1)
+	d.Dispatch(2)
+	d.Dispatch(3)
+
+	// h2 & h3 should only be increased by new dispatches, not the one which registered it
+	if h1 != 3 || h2 != 2 || h3 != 1 {
+		t.Fail()
+	}
 }
 
 // Benchmarks showing that you should always use reflect.TypeOf((*type)(nil)).Elem() instead of creating instances

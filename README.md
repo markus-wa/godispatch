@@ -92,3 +92,8 @@ func main() {
 	d.RemoveAllQueues()
 }
 ```
+
+## License
+Copyright &copy; 2016 Markus Walther
+Licensed [MIT][mit]
+[MIT]: http://www.opensource.org/licenses/mit-license.php
