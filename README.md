@@ -22,18 +22,18 @@ func main() {
 	// This is faster than doing reflect.TypeOf("")
 	d.RegisterHandler(reflect.TypeOf((*string)(nil)).Elem(), func(obj interface{}) {
 		s := obj.(string)
-		fmt.Println("Received string", s)
+		fmt.Println("Handled string", s)
 	})
 	d.RegisterHandler(reflect.TypeOf((*interface{})(nil)).Elem(), func(obj interface{}) {
-		fmt.Println("Received object", obj)
+		fmt.Println("Handled object", obj)
 	})
 
 	d.Dispatch("Hello")
 	// Prints (in this order - as the object handler was registered after the string handler)
-	// "Received string Hello"
-	// "Received object Hello"
+	// "Handled string Hello"
+	// "Handled object Hello"
 	d.Dispatch(123)
-	// Prints "Received object 123"
+	// Prints "Handled object 123"
 }
 ```
 
@@ -52,7 +52,7 @@ func main() {
 	// use *Event for the type assertion and send pointers
 	d.RegisterHandler(reflect.TypeOf((*Event)(nil)).Elem(), func(obj interface{}) {
 		e := obj.(Event)
-		fmt.Println(e)
+		fmt.Println("Handled Event", e)
 		// Handle event
 	})
 	d.RegisterHandler(reflect.TypeOf((*TriggerEvent)(nil)).Elem(), func(obj interface{}) {

@@ -70,37 +70,37 @@ func registerHandlers(d *dp.Dispatcher) *result {
 	// string handler
 	d.RegisterHandler(reflect.TypeOf((*string)(nil)).Elem(), func(msg interface{}) {
 		res.strVal = msg.(string)
-		fmt.Println("handled string", res.strVal)
+		fmt.Println("Handled string", res.strVal)
 	})
 	// int handler
 	d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(obj interface{}) {
 		res.intVal = obj.(int)
-		fmt.Println("handled int", res.intVal)
+		fmt.Println("Handled int", res.intVal)
 	})
 	// float32 handler
 	d.RegisterHandler(reflect.TypeOf((*float32)(nil)).Elem(), func(obj interface{}) {
 		res.f32Val = obj.(float32)
-		fmt.Println("handled float32", res.f32Val)
+		fmt.Println("Handled float32", res.f32Val)
 	})
 	// float64 handler
 	d.RegisterHandler(reflect.TypeOf((*float64)(nil)).Elem(), func(obj interface{}) {
 		res.f64Val = obj.(float64)
-		fmt.Println("handled float64", res.f64Val)
+		fmt.Println("Handled float64", res.f64Val)
 	})
 	// interface handler
 	d.RegisterHandler(reflect.TypeOf((*AB)(nil)).Elem(), func(obj interface{}) {
 		res.abVal = obj.(AB)
-		fmt.Println("handled AB", res.abVal)
+		fmt.Println("Handled AB", res.abVal)
 	})
 	// struct handler
 	d.RegisterHandler(reflect.TypeOf((*A)(nil)).Elem(), func(obj interface{}) {
 		res.aVal = obj.(A)
-		fmt.Println("handled A", res.aVal)
+		fmt.Println("Handled A", res.aVal)
 	})
 	// pointer handler (no reflect.Type.Elem() call)
 	d.RegisterHandler(reflect.TypeOf((*B)(nil)), func(obj interface{}) {
 		res.bPtrVal = obj.(*B)
-		fmt.Println("handled *B", res.bPtrVal)
+		fmt.Println("Handled *B", res.bPtrVal)
 	})
 	return res
 }
@@ -204,13 +204,13 @@ func TestAddHandlerInHandler(t *testing.T) {
 	h2 := 0
 	h3 := 0
 	d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i interface{}) {
-		fmt.Println("handled", i, "in h1")
+		fmt.Println("Handled", i, "in h1")
 		if h1 == 0 {
 			d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i2 interface{}) {
-				fmt.Println("handled", i2, "in h2")
+				fmt.Println("Handled", i2, "in h2")
 				if h2 == 0 {
 					d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i3 interface{}) {
-						fmt.Println("handled", i3, "in h3")
+						fmt.Println("Handled", i3, "in h3")
 						h3++
 					})
 				}
@@ -228,6 +228,82 @@ func TestAddHandlerInHandler(t *testing.T) {
 	if h1 != 3 || h2 != 2 || h3 != 1 {
 		t.Fail()
 	}
+}
+
+// Just a compile test
+func TestExample(t *testing.T) {
+	d := dp.Dispatcher{}
+	// Register a handler for string (not *string!)
+	// We get the string Type by calling Elem() on reflect.Type *string)
+	// This is faster than doing reflect.TypeOf("")
+	d.RegisterHandler(reflect.TypeOf((*string)(nil)).Elem(), func(obj interface{}) {
+		s := obj.(string)
+		fmt.Println("Handled string", s)
+	})
+	d.RegisterHandler(reflect.TypeOf((*interface{})(nil)).Elem(), func(obj interface{}) {
+		fmt.Println("Handled object", obj)
+	})
+
+	d.Dispatch("Hello")
+	// Prints (in this order - as the object handler was registered after the string handler)
+	// "Handled string Hello"
+	// "Handled object Hello"
+	d.Dispatch(123)
+	// Prints "Handled object 123"
+}
+
+type Event struct {
+	reference int
+	message   string
+}
+
+type TriggerEvent struct{}
+
+// Just a compile test
+func TestQueueExample(t *testing.T) {
+	d := dp.Dispatcher{}
+	// If you wanted to handle pointers of the Event just remove .Elem(),
+	// use *Event for the type assertion and send pointers
+	d.RegisterHandler(reflect.TypeOf((*Event)(nil)).Elem(), func(obj interface{}) {
+		e := obj.(Event)
+		fmt.Println("Handled Event", e)
+		// Handle event
+	})
+	d.RegisterHandler(reflect.TypeOf((*TriggerEvent)(nil)).Elem(), func(obj interface{}) {
+		// Do stuff when we receive a 'TriggerEvent'
+	})
+
+	// Buffered to improve performance by avoiding locking
+	q := make(chan interface{}, 5)
+	q2 := make(chan interface{}, 5)
+	q3 := make(chan interface{}, 5)
+
+	// Add queues to dispatcher
+	d.AddQueues(q, q2, q3)
+
+	// Send some events
+	for i := 0; i < 10; i++ {
+		q <- Event{i, "abc"}
+		q <- TriggerEvent{}
+		q2 <- Event{i, "def"}
+		q3 <- Event{i, "geh"}
+		// Events that are not in the same queue will be handled concurrently
+		d.SyncQueues(q)
+		// Do stuff that requires events in q (but not q2 & q3) to be handled
+	}
+	d.SyncAllQueues()
+	// Do stuff that requires events of q, q2 & q3 to be handled
+
+	// Maybe send some more events . . .
+	q <- TriggerEvent{}
+
+	// Remove queues q & q2
+	d.RemoveQueues(q, q2)
+
+	q3 <- Event{}
+
+	// Also remove q3
+	d.RemoveAllQueues()
 }
 
 // Benchmarks showing that you should always use reflect.TypeOf((*type)(nil)).Elem() instead of creating instances
