@@ -20,11 +20,10 @@ func main() {
 	// Register a handler for string (not *string!)
 	// We get the string Type by calling Elem() on reflect.Type *string)
 	// This is faster than doing reflect.TypeOf("")
-	d.RegisterHandler(reflect.TypeOf((*string)(nil)).Elem(), func(obj interface{}) {
-		s := obj.(string)
+	d.RegisterHandler(func(s string) {
 		fmt.Println("Handled string", s)
 	})
-	d.RegisterHandler(reflect.TypeOf((*interface{})(nil)).Elem(), func(obj interface{}) {
+	d.RegisterHandler(func(obj interface{}) {
 		fmt.Println("Handled object", obj)
 	})
 
@@ -50,12 +49,11 @@ func main() {
 	d := dp.Dispatcher{}
 	// If you wanted to handle pointers of the Event just remove .Elem(),
 	// use *Event for the type assertion and send pointers
-	d.RegisterHandler(reflect.TypeOf((*Event)(nil)).Elem(), func(obj interface{}) {
-		e := obj.(Event)
+	d.RegisterHandler(func(e Event) {
 		fmt.Println("Handled Event", e)
 		// Handle event
 	})
-	d.RegisterHandler(reflect.TypeOf((*TriggerEvent)(nil)).Elem(), func(obj interface{}) {
+	d.RegisterHandler(func(te TriggerEvent) {
 		// Do stuff when we receive a 'TriggerEvent'
 	})
 

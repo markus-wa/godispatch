@@ -15,9 +15,6 @@ const (
 	removeToken        // See Dispatcher.RemoveQueues()
 )
 
-// Handler handles an object
-type Handler func(interface{})
-
 // Dispatcher is used to register Handlers and dispatch objects
 type Dispatcher struct {
 	handlerLock    sync.Mutex
@@ -25,8 +22,8 @@ type Dispatcher struct {
 	queueLock      sync.Mutex
 	tokenWg        sync.WaitGroup
 	queues         []chan interface{}
-	handlers       map[reflect.Type][]Handler
-	cachedHandlers map[reflect.Type][]Handler
+	handlers       map[reflect.Type][]reflect.Value
+	cachedHandlers map[reflect.Type][]reflect.Value
 }
 
 // Dispatch dispatches an object to all it's handlers in the order in which the handlers were registered
@@ -40,13 +37,13 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 		d.initCache(t)
 	}
 
+	args := []reflect.Value{reflect.ValueOf(object)}
+
 	for _, h := range d.cachedHandlers[t] {
-		if h != nil {
-			// Allow adding more handlers in handle function
-			d.handlerLock.Unlock()
-			h(object)
-			d.handlerLock.Lock()
-		}
+		// Allow adding more handlers in handle function
+		d.handlerLock.Unlock()
+		h.Call(args)
+		d.handlerLock.Lock()
 	}
 }
 
@@ -55,11 +52,11 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 func (d *Dispatcher) initCache(objectType reflect.Type) {
 	// Read from nil map is allowed, so we initialize it only now if it's nil
 	if d.cachedHandlers == nil {
-		d.cachedHandlers = make(map[reflect.Type][]Handler)
+		d.cachedHandlers = make(map[reflect.Type][]reflect.Value)
 	}
 
 	// Load handlers into cache
-	d.cachedHandlers[objectType] = make([]Handler, 0)
+	d.cachedHandlers[objectType] = make([]reflect.Value, 0)
 	for k := range d.handlers {
 		if objectType.AssignableTo(k) {
 			d.cachedHandlers[objectType] = append(d.cachedHandlers[objectType], d.handlers[k]...)
@@ -168,26 +165,32 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 	return err
 }
 
-// RegisterHandler registers an object handler for a type of objects
-// If an object's type is assignable to objectType (reflect.Type.assignableTo), the handler will receive the object
-// If the handler registers a new handler, the new handler will only be active for new Dispatch calls
-// Calling this method clears the internal type/handler mapping cache for interface types
-func (d *Dispatcher) RegisterHandler(objectType reflect.Type, handler Handler) {
+// RegisterHandler registers an object handler (func) for the type of objects assignable to it's input parameter type
+// If the handler registers a new handler in the function body, the new handler will only be active for new Dispatch calls
+// Calling this method clears the internal type/handler mapping cache for interface handlers
+func (d *Dispatcher) RegisterHandler(handler interface{}) {
+	h := reflect.ValueOf(handler)
+	ht := h.Type()
+	if ht.NumIn() != 1 {
+		panic("More than one input argument for handler function")
+	}
+	t := ht.In(0)
+
 	d.handlerLock.Lock()
 	defer d.handlerLock.Unlock()
 
 	if d.handlers == nil {
-		d.handlers = make(map[reflect.Type][]Handler)
+		d.handlers = make(map[reflect.Type][]reflect.Value)
 	}
-	d.handlers[objectType] = append(d.handlers[objectType], handler)
+	d.handlers[t] = append(d.handlers[t], h)
 
 	if d.cachedHandlers != nil {
 		// Reset cache for interface handlers
-		if objectType.Kind() == reflect.Interface {
+		if t.Kind() == reflect.Interface {
 			d.cachedHandlers = nil
 		} else {
 			// For anything else we should be fine with adding the handler to the cache
-			d.cachedHandlers[objectType] = append(d.cachedHandlers[objectType], handler)
+			d.cachedHandlers[t] = append(d.cachedHandlers[t], h)
 		}
 	}
 }

@@ -68,38 +68,38 @@ func registerHandlers(d *dp.Dispatcher) *result {
 	res := &result{}
 
 	// string handler
-	d.RegisterHandler(reflect.TypeOf((*string)(nil)).Elem(), func(msg interface{}) {
-		res.strVal = msg.(string)
+	d.RegisterHandler(func(s string) {
+		res.strVal = s
 		fmt.Println("Handled string", res.strVal)
 	})
 	// int handler
-	d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(obj interface{}) {
-		res.intVal = obj.(int)
+	d.RegisterHandler(func(i int) {
+		res.intVal = i
 		fmt.Println("Handled int", res.intVal)
 	})
 	// float32 handler
-	d.RegisterHandler(reflect.TypeOf((*float32)(nil)).Elem(), func(obj interface{}) {
-		res.f32Val = obj.(float32)
+	d.RegisterHandler(func(f float32) {
+		res.f32Val = f
 		fmt.Println("Handled float32", res.f32Val)
 	})
 	// float64 handler
-	d.RegisterHandler(reflect.TypeOf((*float64)(nil)).Elem(), func(obj interface{}) {
-		res.f64Val = obj.(float64)
+	d.RegisterHandler(func(f float64) {
+		res.f64Val = f
 		fmt.Println("Handled float64", res.f64Val)
 	})
 	// interface handler
-	d.RegisterHandler(reflect.TypeOf((*AB)(nil)).Elem(), func(obj interface{}) {
-		res.abVal = obj.(AB)
+	d.RegisterHandler(func(ab AB) {
+		res.abVal = ab
 		fmt.Println("Handled AB", res.abVal)
 	})
 	// struct handler
-	d.RegisterHandler(reflect.TypeOf((*A)(nil)).Elem(), func(obj interface{}) {
-		res.aVal = obj.(A)
+	d.RegisterHandler(func(a A) {
+		res.aVal = a
 		fmt.Println("Handled A", res.aVal)
 	})
 	// pointer handler (no reflect.Type.Elem() call)
-	d.RegisterHandler(reflect.TypeOf((*B)(nil)), func(obj interface{}) {
-		res.bPtrVal = obj.(*B)
+	d.RegisterHandler(func(bPtr *B) {
+		res.bPtrVal = bPtr
 		fmt.Println("Handled *B", res.bPtrVal)
 	})
 	return res
@@ -203,13 +203,13 @@ func TestAddHandlerInHandler(t *testing.T) {
 	h1 := 0
 	h2 := 0
 	h3 := 0
-	d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i interface{}) {
+	d.RegisterHandler(func(i int) {
 		fmt.Println("Handled", i, "in h1")
 		if h1 == 0 {
-			d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i2 interface{}) {
+			d.RegisterHandler(func(i2 int) {
 				fmt.Println("Handled", i2, "in h2")
 				if h2 == 0 {
-					d.RegisterHandler(reflect.TypeOf((*int)(nil)).Elem(), func(i3 interface{}) {
+					d.RegisterHandler(func(i3 int) {
 						fmt.Println("Handled", i3, "in h3")
 						h3++
 					})
@@ -230,17 +230,35 @@ func TestAddHandlerInHandler(t *testing.T) {
 	}
 }
 
+type Handler struct {
+	val int
+}
+
+func (h *Handler) handleInt(i int) {
+	h.val = i
+}
+
+func TestManipulateHandlerStruct(t *testing.T) {
+	d := dp.Dispatcher{}
+	h := Handler{}
+	d.RegisterHandler(h.handleInt)
+	val := 5
+	d.Dispatch(val)
+	if h.val != val {
+		t.Fail()
+	}
+}
+
 // Just a compile test
 func TestExample(t *testing.T) {
 	d := dp.Dispatcher{}
 	// Register a handler for string (not *string!)
 	// We get the string Type by calling Elem() on reflect.Type *string)
 	// This is faster than doing reflect.TypeOf("")
-	d.RegisterHandler(reflect.TypeOf((*string)(nil)).Elem(), func(obj interface{}) {
-		s := obj.(string)
+	d.RegisterHandler(func(s string) {
 		fmt.Println("Handled string", s)
 	})
-	d.RegisterHandler(reflect.TypeOf((*interface{})(nil)).Elem(), func(obj interface{}) {
+	d.RegisterHandler(func(obj interface{}) {
 		fmt.Println("Handled object", obj)
 	})
 
@@ -264,12 +282,11 @@ func TestQueueExample(t *testing.T) {
 	d := dp.Dispatcher{}
 	// If you wanted to handle pointers of the Event just remove .Elem(),
 	// use *Event for the type assertion and send pointers
-	d.RegisterHandler(reflect.TypeOf((*Event)(nil)).Elem(), func(obj interface{}) {
-		e := obj.(Event)
+	d.RegisterHandler(func(e Event) {
 		fmt.Println("Handled Event", e)
 		// Handle event
 	})
-	d.RegisterHandler(reflect.TypeOf((*TriggerEvent)(nil)).Elem(), func(obj interface{}) {
+	d.RegisterHandler(func(te TriggerEvent) {
 		// Do stuff when we receive a 'TriggerEvent'
 	})
 
