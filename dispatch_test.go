@@ -3,7 +3,6 @@ package dispatch_test
 import (
 	"fmt"
 	dp "github.com/markus-wa/godispatch"
-	"reflect"
 	"testing"
 )
 
@@ -321,43 +320,4 @@ func TestQueueExample(t *testing.T) {
 
 	// Also remove q3
 	d.RemoveAllQueues()
-}
-
-// Benchmarks showing that you should always use reflect.TypeOf((*type)(nil)).Elem() instead of creating instances
-// It gives 2x-3x performance
-
-func BenchmarkTypeOfEmptyString(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_ = reflect.TypeOf("")
-	}
-}
-
-func BenchmarkTypeOfStringPtrElem(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_ = reflect.TypeOf((*string)(nil)).Elem()
-	}
-}
-
-func BenchmarkTypeOfZeroInt(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_ = reflect.TypeOf(0)
-	}
-}
-
-func BenchmarkTypeOfIntPtrElem(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_ = reflect.TypeOf((*int)(nil)).Elem()
-	}
-}
-
-func BenchmarkTypeOfEmptyStruct(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_ = reflect.TypeOf(A{})
-	}
-}
-
-func BenchmarkTypeOfStructPtrElem(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_ = reflect.TypeOf((*A)(nil)).Elem()
-	}
 }
