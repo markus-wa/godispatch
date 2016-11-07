@@ -3,6 +3,8 @@ This is a general purpose object dispatcher for go.
 
 It can be used to either asynchronously dispatch queues of objects or synchronously dispatch single objects to multiple handlers.
 
+[![Build Status](https://travis-ci.org/markus-wa/godispatch.svg?branch=master)](https://travis-ci.org/markus-wa/godispatch) [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](https://raw.githubusercontent.com/markus-wa/godispatch/master/LICENCE.md)
+
 ## Go Get
 
 	go get github.com/markus-wa/godispatch
@@ -11,7 +13,6 @@ It can be used to either asynchronously dispatch queues of objects or synchronou
 ```go
 import (
 	"fmt"
-	"reflect"
 	dp "github.com/markus-wa/godispatch"
 )
 
@@ -90,8 +91,3 @@ func main() {
 	d.RemoveAllQueues()
 }
 ```
-
-## License
-Copyright &copy; 2016 Markus Walther
-Licensed [MIT][mit]
-[MIT]: http://www.opensource.org/licenses/mit-license.php
