@@ -64,8 +64,8 @@ func (d *Dispatcher) initCache(objectType reflect.Type) {
 	}
 }
 
-// AddQueue adds a channel as 'object-queue'
-// All objects sent to the passed channel will be dispatched in a seperate go routine
+// AddQueues adds channels as 'object-queues'
+// All objects sent to the passed queues will be dispatched to their handlers in a separate go routine per channel
 func (d *Dispatcher) AddQueues(queues ...chan interface{}) {
 	d.queueLock.Lock()
 	defer d.queueLock.Unlock()
@@ -119,7 +119,7 @@ func (d *Dispatcher) removeQueue(q <-chan interface{}) {
 	// Might have been added multiple times (for whatever reason)
 	for r := true; r; {
 		r = false
-		for i, _ := range d.queues {
+		for i := range d.queues {
 			if d.queues[i] == q {
 				d.queues = append(d.queues[:i], d.queues[i+1:]...)
 				r = true
@@ -130,7 +130,7 @@ func (d *Dispatcher) removeQueue(q <-chan interface{}) {
 }
 
 // SyncQueues syncs the channels dispatch routines to the current go routine
-// This ensures all objects received in the passed channel up to this point will be handled before continuing
+// This ensures all objects received in the passed channels up to this point will be handled before continuing
 func (d *Dispatcher) SyncQueues(queues ...chan interface{}) error {
 	// We can't just check the channel length as that does not tell us whether the last object has been fully dispatched
 	return d.sendToken(queues, syncToken)
@@ -171,8 +171,11 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 func (d *Dispatcher) RegisterHandler(handler interface{}) {
 	h := reflect.ValueOf(handler)
 	ht := h.Type()
+	if ht.Kind() != reflect.Func {
+		panic("Handler isn't a function")
+	}
 	if ht.NumIn() != 1 {
-		panic("More than one input argument for handler function")
+		panic("Handler function has more than one input parameter")
 	}
 	t := ht.In(0)
 
