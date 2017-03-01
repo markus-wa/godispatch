@@ -116,6 +116,7 @@ func (d *Dispatcher) removeQueue(q <-chan interface{}) {
 	d.queueLock.Lock()
 	defer d.queueLock.Unlock()
 
+	// TODO: Seems like this could be done in a nicer way
 	// Might have been added multiple times (for whatever reason)
 	for r := true; r; {
 		r = false
@@ -123,7 +124,7 @@ func (d *Dispatcher) removeQueue(q <-chan interface{}) {
 			if d.queues[i] == q {
 				d.queues = append(d.queues[:i], d.queues[i+1:]...)
 				r = true
-				break
+				break // reset i after changing the slice
 			}
 		}
 	}
@@ -147,20 +148,27 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 	defer d.tokenLock.Unlock()
 
 	var err error
-	for _, q := range queues {
-		found := false
-		for _, dq := range d.queues {
-			if q == dq {
-				// Using sync.Cond would be a race against dispatchQueue
-				d.tokenWg.Add(1)
-				q <- token
-				found = true
+
+	// Avoid race condition by locking queues until all remove tokens are sent
+	// Otherwise the first queue could be removed before the second one is read into dq
+	func() {
+		d.queueLock.Lock()
+		defer d.queueLock.Unlock()
+		for _, q := range queues {
+			found := false
+			for _, dq := range d.queues {
+				if q == dq {
+					// Using sync.Cond would be a race against dispatchQueue
+					d.tokenWg.Add(1)
+					q <- token
+					found = true
+				}
+			}
+			if !found {
+				err = errors.New("One or more queues not found")
 			}
 		}
-		if !found {
-			err = errors.New("One or more queues not found")
-		}
-	}
+	}()
 	d.tokenWg.Wait()
 	return err
 }
