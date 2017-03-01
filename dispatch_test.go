@@ -58,8 +58,7 @@ func (r result) equal(r2 result) bool {
 
 func assertResult(t *testing.T, res *result, exp result) {
 	if !res.equal(exp) {
-		fmt.Println("expected ", exp, "got", res)
-		t.Fail()
+		t.Error("expected ", exp, "got", res)
 	}
 }
 
@@ -131,6 +130,7 @@ func TestFloat32(t *testing.T) {
 	assertResult(t, res, result{f32Val: val})
 }
 
+// Should only be handled by float64 handler, not float32
 func TestFloat64(t *testing.T) {
 	d := dp.Dispatcher{}
 	res := registerHandlers(&d)
@@ -149,15 +149,21 @@ func TestStructA(t *testing.T) {
 	assertResult(t, res, result{abVal: val, aVal: val})
 }
 
+// Tests if the handler cache is cleared after registering an interface handler
 func TestStructB(t *testing.T) {
 	d := dp.Dispatcher{}
-	res := registerHandlers(&d)
 
 	val := B{val: "bVal"}
+	// Make Dispatcher initalize the cache
+	d.Dispatch(val)
+
+	res := registerHandlers(&d)
+
 	d.Dispatch(val)
 	assertResult(t, res, result{abVal: val})
 }
 
+// Should work with pointers just as well
 func TestStructPointer(t *testing.T) {
 	d := dp.Dispatcher{}
 	res := registerHandlers(&d)
@@ -167,6 +173,7 @@ func TestStructPointer(t *testing.T) {
 	assertResult(t, res, result{abVal: val, bPtrVal: val})
 }
 
+// Tests queue functionality
 func TestQueues(t *testing.T) {
 	d := dp.Dispatcher{}
 	res := registerHandlers(&d)
@@ -184,7 +191,7 @@ func TestQueues(t *testing.T) {
 	select {
 	case q <- 10:
 		// Nobody should be receiving on this channel after removal
-		t.Fail()
+		t.Error("Data sent to channel and still received after RemoveQueues()")
 	default:
 		// nop
 	}
@@ -197,6 +204,7 @@ func TestQueues(t *testing.T) {
 	assertResult(t, res, exp)
 }
 
+// Tests how handlers behave if added dynamically by other handlers
 func TestAddHandlerInHandler(t *testing.T) {
 	d := dp.Dispatcher{}
 	h1 := 0
@@ -225,30 +233,45 @@ func TestAddHandlerInHandler(t *testing.T) {
 
 	// h2 & h3 should only be increased by new dispatches, not the one which registered it
 	if h1 != 3 || h2 != 2 || h3 != 1 {
-		t.Fail()
+		t.Errorf("Handler call counts should be h1=3, h2=2 & h3=1 but are h1=%d, h2=%d, h3=%d", h1, h2, h3)
 	}
 }
 
-type Handler struct {
-	val int
-}
-
-func (h *Handler) handleInt(i int) {
-	h.val = i
-}
-
-func TestManipulateHandlerStruct(t *testing.T) {
+// Tests what happens for illegal arguments
+func TestIllegalArguments(t *testing.T) {
 	d := dp.Dispatcher{}
-	h := Handler{}
-	d.RegisterHandler(h.handleInt)
-	val := 5
-	d.Dispatch(val)
-	if h.val != val {
-		t.Fail()
+
+	err := d.RemoveQueues(make(chan interface{}))
+	if err == nil {
+		t.Error("RemoveQueues() returned no error for non-registered queue")
 	}
+	err = d.SyncQueues(make(chan interface{}))
+	if err == nil {
+		t.Error("SyncQueues() returned no error for non-registered queue")
+	}
+
+	func() {
+		defer func() {
+			e := recover()
+			if e == nil {
+				t.Error("RegisterHandler() didn't panic for wrong handler type")
+			}
+		}()
+		d.RegisterHandler(5)
+	}()
+
+	func() {
+		defer func() {
+			e := recover()
+			if e == nil {
+				t.Error("RegisterHandler() didn't panic for wrong input parameter count")
+			}
+		}()
+		d.RegisterHandler(func() {})
+	}()
 }
 
-// Just a compile test
+// Just a compile test for the README example
 func TestExample(t *testing.T) {
 	d := dp.Dispatcher{}
 	// Register a handler for string (not *string!)
@@ -276,7 +299,7 @@ type Event struct {
 
 type TriggerEvent struct{}
 
-// Just a compile test
+// Just a compile test for the README example
 func TestQueueExample(t *testing.T) {
 	d := dp.Dispatcher{}
 	// If you wanted to handle pointers of the Event just remove .Elem(),
