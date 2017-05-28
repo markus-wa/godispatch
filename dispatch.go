@@ -1,7 +1,7 @@
-// Package dispatch provides a general purpose object dispatcher
+// Package dispatch provides a general purpose object dispatcher.
 // It can be used to asynchronously dispatch queues (channels)
-// or synchronously dispatch single objects
-// For example one could use it to dispatch events or messages
+// or synchronously dispatch single objects.
+// For example one could use it to dispatch events or messages.
 package dispatch
 
 import (
@@ -15,7 +15,7 @@ const (
 	removeToken        // See Dispatcher.RemoveQueues()
 )
 
-// Dispatcher is used to register Handlers and dispatch objects
+// Dispatcher is used to register handlers and dispatch objects.
 type Dispatcher struct {
 	handlerLock    sync.Mutex
 	tokenLock      sync.Mutex
@@ -26,7 +26,7 @@ type Dispatcher struct {
 	cachedHandlers map[reflect.Type][]reflect.Value
 }
 
-// Dispatch dispatches an object to all it's handlers in the order in which the handlers were registered
+// Dispatch dispatches an object to all it's handlers in the order in which the handlers were registered.
 func (d *Dispatcher) Dispatch(object interface{}) {
 	d.handlerLock.Lock()
 
@@ -46,8 +46,8 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 	}
 }
 
-// We cache the handlers so we don't have to check the type of each handler group for every object of the same type
-// Performance gained >15%, depending on the amount of handlers
+// We cache the handlers so we don't have to check the type of each handler group for every object of the same type.
+// Performance gained >15%, depending on the amount of handlers.
 func (d *Dispatcher) initCache(objectType reflect.Type) {
 	// Read from nil map is allowed, so we initialize it only now if it's nil
 	if d.cachedHandlers == nil {
@@ -63,8 +63,8 @@ func (d *Dispatcher) initCache(objectType reflect.Type) {
 	}
 }
 
-// AddQueues adds channels as 'object-queues'
-// All objects sent to the passed queues will be dispatched to their handlers in a separate go routine per channel
+// AddQueues adds channels as 'object-queues'.
+// All objects sent to the passed queues will be dispatched to their handlers in a separate go routine per channel.
 func (d *Dispatcher) AddQueues(queues ...chan interface{}) {
 	d.queueLock.Lock()
 	defer d.queueLock.Unlock()
@@ -100,12 +100,12 @@ func (d *Dispatcher) dispatchQueue(q <-chan interface{}) {
 	}
 }
 
-// RemoveQueues removes the given queues from the Dispatcher without closing them
+// RemoveQueues removes the given queues from the Dispatcher without closing them.
 func (d *Dispatcher) RemoveQueues(queues ...chan interface{}) error {
 	return d.sendToken(queues, removeToken)
 }
 
-// RemoveAllQueues removes all queues from the Dispatcher without closing them
+// RemoveAllQueues removes all queues from the Dispatcher without closing them.
 func (d *Dispatcher) RemoveAllQueues() {
 	d.RemoveQueues(d.queues...)
 }
@@ -129,19 +129,19 @@ func (d *Dispatcher) removeQueue(q <-chan interface{}) {
 	}
 }
 
-// SyncQueues syncs the channels dispatch routines to the current go routine
-// This ensures all objects received in the passed channels up to this point will be handled before continuing
+// SyncQueues syncs the channels dispatch routines to the current go routine.
+// This ensures all objects received in the passed channels up to this point will be handled before continuing.
 func (d *Dispatcher) SyncQueues(queues ...chan interface{}) error {
 	// We can't just check the channel length as that does not tell us whether the last object has been fully dispatched
 	return d.sendToken(queues, syncToken)
 }
 
-// SyncAllQueues calls SyncQueues for all queues in this Dispatcher
+// SyncAllQueues calls SyncQueues() for all queues in this Dispatcher.
 func (d *Dispatcher) SyncAllQueues() {
 	d.SyncQueues(d.queues...)
 }
 
-// Sends a token to specific queues in the dispatcher and waits until they were handled
+// Sends a token to specific queues in the dispatcher and waits until they were handled.
 func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) error {
 	d.tokenLock.Lock()
 	defer d.tokenLock.Unlock()
@@ -172,9 +172,9 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 	return err
 }
 
-// RegisterHandler registers an object handler (func) for the type of objects assignable to it's input parameter type
-// If the handler registers a new handler in the function body, the new handler will only be active for new Dispatch calls
-// Calling this method clears the internal type/handler mapping cache for interface handlers
+// RegisterHandler registers an object handler (func) for the type of objects assignable to it's input parameter type.
+// If the handler registers a new handler in the function body, the new handler will only be active for new Dispatch() calls.
+// Calling this method clears the internal type/handler mapping cache for interface handlers.
 func (d *Dispatcher) RegisterHandler(handler interface{}) {
 	h := reflect.ValueOf(handler)
 	ht := h.Type()
