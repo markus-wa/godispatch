@@ -29,21 +29,20 @@ type Dispatcher struct {
 // Dispatch dispatches an object to all it's handlers in the order in which the handlers were registered
 func (d *Dispatcher) Dispatch(object interface{}) {
 	d.handlerLock.Lock()
-	defer d.handlerLock.Unlock()
 
 	t := reflect.TypeOf(object)
-
 	if d.cachedHandlers[t] == nil {
 		d.initCache(t)
 	}
+	handlers := d.cachedHandlers[t]
+
+	// No defer because we already need to unlock here so handlers can be added inside Call()
+	// Should be fine as long as we don't panic before this
+	d.handlerLock.Unlock()
 
 	args := []reflect.Value{reflect.ValueOf(object)}
-
-	for _, h := range d.cachedHandlers[t] {
-		// Allow adding more handlers in handle function
-		d.handlerLock.Unlock()
+	for _, h := range handlers {
 		h.Call(args)
-		d.handlerLock.Lock()
 	}
 }
 
