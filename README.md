@@ -5,6 +5,7 @@ It can be used to either asynchronously dispatch queues of objects or synchronou
 
 [![GoDoc](https://godoc.org/github.com/markus-wa/godispatch?status.svg)](https://godoc.org/github.com/markus-wa/godispatch)
 [![Build Status](https://travis-ci.org/markus-wa/godispatch.svg?branch=master)](https://travis-ci.org/markus-wa/godispatch)
+[![codecov](https://codecov.io/gh/markus-wa/godispatch/branch/master/graph/badge.svg)](https://codecov.io/gh/markus-wa/godispatch)
 [![Go Report](https://goreportcard.com/badge/github.com/markus-wa/godispatch)](https://goreportcard.com/report/github.com/markus-wa/godispatch)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](LICENSE.md)
 
