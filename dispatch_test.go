@@ -2,8 +2,9 @@ package dispatch_test
 
 import (
 	"fmt"
-	dp "github.com/markus-wa/godispatch"
 	"testing"
+
+	dp "github.com/markus-wa/godispatch"
 )
 
 type AB interface {
@@ -234,6 +235,57 @@ func TestAddHandlerInHandler(t *testing.T) {
 	// h2 & h3 should only be increased by new dispatches, not the one which registered it
 	if h1 != 3 || h2 != 2 || h3 != 1 {
 		t.Errorf("Handler call counts should be h1=3, h2=2 & h3=1 but are h1=%d, h2=%d, h3=%d", h1, h2, h3)
+	}
+}
+
+// Tests if unregistering handlers works
+func TestUnregisterHandler(t *testing.T) {
+	d := dp.Dispatcher{}
+
+	iInt := 0
+	d.RegisterHandler(func(int) {
+		iInt++
+	})
+
+	iRemovedInt := 0
+	id := d.RegisterHandler(func(int) {
+		iRemovedInt++
+	})
+
+	d.Dispatch(1)
+
+	d.UnregisterHandler(id)
+
+	d.Dispatch(1)
+
+	if iInt != 2 {
+		t.Error("The handler that wasn't removed wasn't triggered after removal")
+	}
+	if iRemovedInt != 1 {
+		t.Error("The removed handler was triggered after removal")
+	}
+
+	iInterface := 0
+	d.RegisterHandler(func(AB) {
+		iInterface++
+	})
+
+	iRemovedInterface := 0
+	id = d.RegisterHandler(func(AB) {
+		iRemovedInterface++
+	})
+
+	d.Dispatch(A{})
+
+	d.UnregisterHandler(id)
+
+	d.Dispatch(A{})
+
+	if iInterface != 2 {
+		t.Error("The interface handler that wasn't removed wasn't triggered after removal")
+	}
+	if iRemovedInterface != 1 {
+		t.Error("The removed interface handler was triggered after removal")
 	}
 }
 

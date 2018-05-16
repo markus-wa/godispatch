@@ -15,6 +15,9 @@ const (
 	removeToken        // See Dispatcher.RemoveQueues()
 )
 
+// HandlerIdentifier uniquely identifies a handler
+type HandlerIdentifier *int
+
 // Dispatcher is used to register handlers and dispatch objects.
 type Dispatcher struct {
 	handlerLock    sync.Mutex
@@ -22,7 +25,7 @@ type Dispatcher struct {
 	queueLock      sync.Mutex
 	tokenWg        sync.WaitGroup
 	queues         []chan interface{}
-	handlers       map[reflect.Type][]reflect.Value
+	handlers       map[reflect.Type]map[HandlerIdentifier]reflect.Value
 	cachedHandlers map[reflect.Type][]reflect.Value
 }
 
@@ -56,9 +59,15 @@ func (d *Dispatcher) initCache(objectType reflect.Type) {
 
 	// Load handlers into cache
 	d.cachedHandlers[objectType] = make([]reflect.Value, 0)
-	for k := range d.handlers {
-		if objectType.AssignableTo(k) {
-			d.cachedHandlers[objectType] = append(d.cachedHandlers[objectType], d.handlers[k]...)
+	for t := range d.handlers {
+		if objectType.AssignableTo(t) {
+			handlerList := make([]reflect.Value, len(d.handlers[t]))
+			i := 0
+			for _, h := range d.handlers[t] {
+				handlerList[i] = h
+				i++
+			}
+			d.cachedHandlers[objectType] = append(d.cachedHandlers[objectType], handlerList...)
 		}
 	}
 }
@@ -175,7 +184,8 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 // RegisterHandler registers an object handler (func) for the type of objects assignable to it's input parameter type.
 // If the handler registers a new handler in the function body, the new handler will only be active for new Dispatch() calls.
 // Calling this method clears the internal type/handler mapping cache for interface handlers.
-func (d *Dispatcher) RegisterHandler(handler interface{}) {
+// Returns a unique identifier which can be used to remove the handler via UnregisterHandler().
+func (d *Dispatcher) RegisterHandler(handler interface{}) HandlerIdentifier {
 	h := reflect.ValueOf(handler)
 	ht := h.Type()
 	if ht.Kind() != reflect.Func {
@@ -190,9 +200,13 @@ func (d *Dispatcher) RegisterHandler(handler interface{}) {
 	defer d.handlerLock.Unlock()
 
 	if d.handlers == nil {
-		d.handlers = make(map[reflect.Type][]reflect.Value)
+		d.handlers = make(map[reflect.Type]map[HandlerIdentifier]reflect.Value)
 	}
-	d.handlers[t] = append(d.handlers[t], h)
+	if d.handlers[t] == nil {
+		d.handlers[t] = make(map[HandlerIdentifier]reflect.Value)
+	}
+	handlerID := new(int)
+	d.handlers[t][handlerID] = h
 
 	if d.cachedHandlers != nil {
 		// Reset cache for interface handlers
@@ -201,6 +215,29 @@ func (d *Dispatcher) RegisterHandler(handler interface{}) {
 		} else {
 			// For anything else we should be fine with adding the handler to the cache
 			d.cachedHandlers[t] = append(d.cachedHandlers[t], h)
+		}
+	}
+
+	return handlerID
+}
+
+// UnregisterHandler unregisters a handler by it's identifier (as returned by RegisterHandler()).
+// Unregistering is done via identifiers because functions can't be compared in Go.
+func (d *Dispatcher) UnregisterHandler(identifier HandlerIdentifier) {
+	for t, m := range d.handlers {
+		for id := range m {
+			if id == identifier {
+				delete(m, id)
+				if d.cachedHandlers != nil {
+					// Reset cache for interface handlers
+					if t.Kind() == reflect.Interface {
+						d.cachedHandlers = nil
+					} else {
+						// For anything else we can just clear the cache for that type
+						delete(d.cachedHandlers, t)
+					}
+				}
+			}
 		}
 	}
 }
