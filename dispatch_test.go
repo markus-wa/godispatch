@@ -203,6 +203,33 @@ func TestQueues(t *testing.T) {
 	exp.f32Val = f32Val
 	d.SyncAllQueues()
 	assertResult(t, res, exp)
+
+	// Clean up
+	d.RemoveAllQueues()
+}
+
+// Tests queue cancellation
+func TestCancelQueues(t *testing.T) {
+	d := dp.Dispatcher{}
+	res := registerHandlers(&d)
+
+	d.RegisterHandler(func(i int) {
+		// Cancel queues after first value
+		d.CancelAllQueues()
+	})
+
+	q := make(chan interface{}, 1)
+	d.AddQueues(q)
+
+	intVal := 10
+	q <- intVal
+	exp := result{intVal: intVal}
+
+	// Send another one, this shouldn't be handled anymore
+	q <- 11
+
+	d.SyncAllQueues()
+	assertResult(t, res, exp)
 }
 
 // Tests how handlers behave if added dynamically by other handlers

@@ -10,13 +10,21 @@ import (
 	"sync"
 )
 
+type queueToken int
+
 const (
-	syncToken   = iota // See Dispatcher.SyncQueues()
-	removeToken        // See Dispatcher.RemoveQueues()
+	syncToken   queueToken = iota // See Dispatcher.SyncQueues()
+	removeToken                   // See Dispatcher.RemoveQueues()
+	cancelToken                   // See Dispatcher.CancelQueues()
 )
 
 // HandlerIdentifier uniquely identifies a handler
 type HandlerIdentifier *int
+
+type queue struct {
+	data   chan interface{}
+	cancel chan struct{}
+}
 
 // Dispatcher is used to register handlers and dispatch objects.
 type Dispatcher struct {
@@ -24,7 +32,7 @@ type Dispatcher struct {
 	tokenLock      sync.Mutex
 	queueLock      sync.Mutex
 	tokenWg        sync.WaitGroup
-	queues         []chan interface{}
+	queues         []queue
 	handlers       map[reflect.Type]map[HandlerIdentifier]reflect.Value
 	cachedHandlers map[reflect.Type][]reflect.Value
 }
@@ -44,8 +52,8 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 	d.handlerLock.Unlock()
 
 	args := []reflect.Value{reflect.ValueOf(object)}
-	for _, h := range handlers {
-		h.Call(args)
+	for i := 0; i < len(handlers); i++ {
+		handlers[i].Call(args)
 	}
 }
 
@@ -63,8 +71,8 @@ func (d *Dispatcher) initCache(objectType reflect.Type) {
 		if objectType.AssignableTo(t) {
 			handlerList := make([]reflect.Value, len(d.handlers[t]))
 			i := 0
-			for _, h := range d.handlers[t] {
-				handlerList[i] = h
+			for hk := range d.handlers[t] {
+				handlerList[i] = d.handlers[t][hk]
 				i++
 			}
 			d.cachedHandlers[objectType] = append(d.cachedHandlers[objectType], handlerList...)
@@ -74,34 +82,63 @@ func (d *Dispatcher) initCache(objectType reflect.Type) {
 
 // AddQueues adds channels as 'object-queues'.
 // All objects sent to the passed queues will be dispatched to their handlers in a separate go routine per channel.
-func (d *Dispatcher) AddQueues(queues ...chan interface{}) {
+func (d *Dispatcher) AddQueues(dataChans ...chan interface{}) {
 	d.queueLock.Lock()
 	defer d.queueLock.Unlock()
 
-	d.queues = append(d.queues, queues...)
-	for _, q := range queues {
+	for _, dc := range dataChans {
+		q := queue{data: dc, cancel: make(chan struct{}, 1)}
+		d.queues = append(d.queues, q)
 		go d.dispatchQueue(q)
 	}
 }
 
 // See AddQueue() & Dispatch()
-func (d *Dispatcher) dispatchQueue(q <-chan interface{}) {
+func (d *Dispatcher) dispatchQueue(q queue) {
 	var rem bool
-	for e := range q {
+
+Dispatch:
+	for e := range q.data {
 		switch e {
 		case syncToken:
 			d.tokenWg.Done()
 		case removeToken:
 			rem = true
+			break Dispatch
+		case cancelToken:
+			// Just the trigger for idle queues
+			// Don't send this to Dispatch()
+			// Actual cancelling is done below
 		default:
 			d.Dispatch(e)
 		}
-		if rem {
-			break
+
+		// Cancellation
+		select {
+		case <-q.cancel:
+			// Drain the data channel
+		Drain:
+			for {
+				select {
+				case e = <-q.data:
+					switch e {
+					case syncToken:
+						d.tokenWg.Done()
+					case removeToken:
+						rem = true
+					}
+				default:
+					break Drain
+				}
+			}
+
+			break Dispatch
+		default:
 		}
 	}
+
 	// Remove closed or removed channel from queues
-	d.removeQueue(q)
+	d.removeQueue(q.data)
 
 	// Only when manually removed, not closed
 	if rem {
@@ -116,7 +153,15 @@ func (d *Dispatcher) RemoveQueues(queues ...chan interface{}) error {
 
 // RemoveAllQueues removes all queues from the Dispatcher without closing them.
 func (d *Dispatcher) RemoveAllQueues() {
-	d.RemoveQueues(d.queues...)
+	d.RemoveQueues(d.allQueues()...)
+}
+
+func (d *Dispatcher) allQueues() []chan interface{} {
+	var queues []chan interface{}
+	for i := 0; i < len(d.queues); i++ {
+		queues = append(queues, d.queues[i].data)
+	}
+	return queues
 }
 
 // See RemoveQueues()
@@ -128,14 +173,39 @@ func (d *Dispatcher) removeQueue(q <-chan interface{}) {
 	// Might have been added multiple times (for whatever reason)
 	for r := true; r; {
 		r = false
-		for i := range d.queues {
-			if d.queues[i] == q {
+		for i := 0; i < len(d.queues); i++ {
+			if d.queues[i].data == q {
 				d.queues = append(d.queues[:i], d.queues[i+1:]...)
 				r = true
 				break // reset i after changing the slice
 			}
 		}
 	}
+}
+
+// CancelQueues cancels the dispatching of the provided queues.
+// Any data sill in the queue at this point will be ignored.
+func (d *Dispatcher) CancelQueues(queues ...chan interface{}) {
+	for _, q := range queues {
+		for i := 0; i < len(d.queues); i++ {
+			if d.queues[i].data == q {
+				// Send cancellation signal
+				d.queues[i].cancel <- struct{}{}
+
+				// Wake up the queue dispatcher if the queue is empty
+				select {
+				case d.queues[i].data <- cancelToken:
+				default:
+				}
+			}
+		}
+	}
+}
+
+// CancelAllQueues cancels the dispatching of all registered queues.
+// See: CancelQueues()
+func (d *Dispatcher) CancelAllQueues() {
+	d.CancelQueues(d.allQueues()...)
 }
 
 // SyncQueues syncs the channels dispatch routines to the current go routine.
@@ -147,7 +217,7 @@ func (d *Dispatcher) SyncQueues(queues ...chan interface{}) error {
 
 // SyncAllQueues calls SyncQueues() for all queues in this Dispatcher.
 func (d *Dispatcher) SyncAllQueues() {
-	d.SyncQueues(d.queues...)
+	d.SyncQueues(d.allQueues()...)
 }
 
 // Sends a token to specific queues in the dispatcher and waits until they were handled.
@@ -164,8 +234,8 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 		defer d.queueLock.Unlock()
 		for _, q := range queues {
 			found := false
-			for _, dq := range d.queues {
-				if q == dq {
+			for i := 0; i < len(d.queues); i++ {
+				if q == d.queues[i].data {
 					// Using sync.Cond would be a race against dispatchQueue
 					d.tokenWg.Add(1)
 					q <- token
