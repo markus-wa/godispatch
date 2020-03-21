@@ -6,6 +6,7 @@ package dispatch
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -29,6 +30,45 @@ type Dispatcher struct {
 	cachedHandlers map[reflect.Type][]reflect.Value
 }
 
+/*
+ConsumerCodePanic is the type which identifies panics in consumer code (e.g. RegisterHandler).
+
+Example:
+
+	d := dp.Dispatcher{}
+	d.RegisterHandler(func(a *A) {
+		fmt.Println(a.val)
+	})
+
+	var err interface{}
+	func() {
+		defer func() {
+			err = recover()
+		}()
+
+		var a *A
+		d.Dispatch(a)
+	}()
+
+	switch err.(type) {
+	case dp.ConsumerCodePanic:
+		fmt.Println("something went wrong inside consumer code")
+	default:
+		fmt.Println("something went wrong in the library")
+	}
+*/
+type ConsumerCodePanic struct {
+	value interface{}
+}
+
+func (ucp ConsumerCodePanic) String() string {
+	return fmt.Sprint(ucp.value)
+}
+
+func (ucp ConsumerCodePanic) Value() interface{} {
+	return ucp.value
+}
+
 // Dispatch dispatches an object to all it's handlers in the order in which the handlers were registered.
 func (d *Dispatcher) Dispatch(object interface{}) {
 	d.handlerLock.Lock()
@@ -45,8 +85,21 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 
 	args := []reflect.Value{reflect.ValueOf(object)}
 	for _, h := range handlers {
-		h.Call(args)
+		callConsumerCode(h, args)
 	}
+}
+
+func callConsumerCode(h reflect.Value, args []reflect.Value) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+
+		panic(ConsumerCodePanic{value: r})
+	}()
+
+	h.Call(args)
 }
 
 // We cache the handlers so we don't have to check the type of each handler group for every object of the same type.

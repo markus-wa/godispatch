@@ -323,6 +323,35 @@ func TestIllegalArguments(t *testing.T) {
 	}()
 }
 
+func TestConsumerCodePanic(t *testing.T) {
+	d := dp.Dispatcher{}
+	d.RegisterHandler(func(a *A) {
+		fmt.Println(a.val)
+	})
+
+	var err interface{}
+	func() {
+		defer func() {
+			err = recover()
+		}()
+
+		var a *A
+		d.Dispatch(a)
+	}()
+
+	switch ccp := err.(type) {
+	case dp.ConsumerCodePanic:
+		if ccp.String() != "runtime error: invalid memory address or nil pointer dereference" {
+			t.Error("ConsumerCodePanic.String() is not \"runtime error: invalid memory address or nil pointer dereference\"")
+		}
+		if fmt.Sprint(ccp.Value()) != "runtime error: invalid memory address or nil pointer dereference" {
+			t.Error("ConsumerCodePanic.Value() is not \"runtime error: invalid memory address or nil pointer dereference\"")
+		}
+	default:
+		t.Error("recovered type != ConsumerCodePanic")
+	}
+}
+
 // Just a compile test for the README example
 func TestExample(t *testing.T) {
 	d := dp.Dispatcher{}
