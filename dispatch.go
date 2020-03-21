@@ -57,15 +57,20 @@ Example:
 		fmt.Println("something went wrong in the library")
 	}
 */
-type ConsumerCodePanic struct {
+type ConsumerCodePanic interface {
+	String() string
+	Value() interface{}
+}
+
+type consumerCodePanic struct {
 	value interface{}
 }
 
-func (ucp ConsumerCodePanic) String() string {
+func (ucp consumerCodePanic) String() string {
 	return fmt.Sprint(ucp.value)
 }
 
-func (ucp ConsumerCodePanic) Value() interface{} {
+func (ucp consumerCodePanic) Value() interface{} {
 	return ucp.value
 }
 
@@ -96,7 +101,7 @@ func callConsumerCode(h reflect.Value, args []reflect.Value) {
 			return
 		}
 
-		panic(ConsumerCodePanic{value: r})
+		panic(consumerCodePanic{value: r})
 	}()
 
 	h.Call(args)
