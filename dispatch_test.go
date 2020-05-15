@@ -425,3 +425,29 @@ func TestQueueExample(t *testing.T) {
 	// Also remove q3
 	d.RemoveAllQueues()
 }
+
+// Tests queue functionality
+func TestPanicHandler(t *testing.T) {
+	var recovered interface{}
+
+	d := dp.NewDispatcherWithConfig(dp.Config{
+		PanicHandler: func(v interface{}) {
+			recovered = v
+		},
+	})
+
+	d.RegisterHandler(func(string) {
+		panic("test")
+	})
+
+	q := make(chan interface{}, 2)
+
+	d.AddQueues(q)
+	q <- "txt"
+
+	d.SyncAllQueues()
+
+	if recovered.(dp.ConsumerCodePanic).Value() != "test" {
+		t.Error("panic value not recovered")
+	}
+}

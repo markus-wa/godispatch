@@ -19,6 +19,9 @@ const (
 // HandlerIdentifier uniquely identifies a handler
 type HandlerIdentifier *int
 
+// PanicHandler is a function that gets called when a panic occurs during dispatching.
+type PanicHandler func(v interface{})
+
 // Dispatcher is used to register handlers and dispatch objects.
 type Dispatcher struct {
 	handlerLock    sync.Mutex
@@ -28,6 +31,19 @@ type Dispatcher struct {
 	queues         []chan interface{}
 	handlers       map[reflect.Type]map[HandlerIdentifier]reflect.Value
 	cachedHandlers map[reflect.Type][]reflect.Value
+	panicHandler   PanicHandler
+}
+
+// Config contains configuration parameters for a Dispatcher.
+type Config struct {
+	PanicHandler PanicHandler // A function that handles panics in goroutines created by Dispatcher.AddQueues()
+}
+
+// NewDispatcherWithConfig creates a new dispatcher with a given config and returns it.
+func NewDispatcherWithConfig(cfg Config) *Dispatcher {
+	return &Dispatcher{
+		panicHandler: cfg.PanicHandler,
+	}
 }
 
 /*
@@ -152,7 +168,7 @@ func (d *Dispatcher) dispatchQueue(q <-chan interface{}) {
 		case removeToken:
 			rem = true
 		default:
-			d.Dispatch(e)
+			d.dispatchWithRecover(e)
 		}
 		if rem {
 			break
@@ -165,6 +181,18 @@ func (d *Dispatcher) dispatchQueue(q <-chan interface{}) {
 	if rem {
 		d.tokenWg.Done()
 	}
+}
+
+func (d *Dispatcher) dispatchWithRecover(object interface{}) {
+	defer func() {
+		if d.panicHandler != nil {
+			if r := recover(); r != nil {
+				d.panicHandler(r)
+			}
+		}
+	}()
+
+	d.Dispatch(object)
 }
 
 // RemoveQueues removes the given queues from the Dispatcher without closing them.
