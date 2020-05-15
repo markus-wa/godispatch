@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	dp "github.com/markus-wa/godispatch"
@@ -16,7 +17,7 @@ type A struct {
 }
 
 func (a A) foo() string {
-	return string(a.val)
+	return strconv.Itoa(a.val)
 }
 
 type B struct {
