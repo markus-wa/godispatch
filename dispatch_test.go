@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	dp "github.com/markus-wa/godispatch"
@@ -16,7 +17,7 @@ type A struct {
 }
 
 func (a A) foo() string {
-	return string(a.val)
+	return strconv.Itoa(a.val)
 }
 
 type B struct {
@@ -424,4 +425,30 @@ func TestQueueExample(t *testing.T) {
 
 	// Also remove q3
 	d.RemoveAllQueues()
+}
+
+// Tests queue functionality
+func TestPanicHandler(t *testing.T) {
+	var recovered interface{}
+
+	d := dp.NewDispatcherWithConfig(dp.Config{
+		PanicHandler: func(v interface{}) {
+			recovered = v
+		},
+	})
+
+	d.RegisterHandler(func(string) {
+		panic("test")
+	})
+
+	q := make(chan interface{}, 2)
+
+	d.AddQueues(q)
+	q <- "txt"
+
+	d.SyncAllQueues()
+
+	if recovered.(dp.ConsumerCodePanic).Value() != "test" {
+		t.Error("panic value not recovered")
+	}
 }
