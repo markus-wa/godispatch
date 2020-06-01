@@ -98,6 +98,7 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 	if d.cachedHandlers[t] == nil {
 		d.initCache(t)
 	}
+
 	handlers := d.cachedHandlers[t]
 
 	// No defer because we already need to unlock here so handlers can be added inside Call()
@@ -105,6 +106,7 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 	d.handlerLock.Unlock()
 
 	args := []reflect.Value{reflect.ValueOf(object)}
+
 	for _, h := range handlers {
 		callConsumerCode(h, args)
 	}
@@ -137,10 +139,12 @@ func (d *Dispatcher) initCache(objectType reflect.Type) {
 		if objectType.AssignableTo(t) {
 			handlerList := make([]reflect.Value, len(d.handlers[t]))
 			i := 0
+
 			for _, h := range d.handlers[t] {
 				handlerList[i] = h
 				i++
 			}
+
 			d.cachedHandlers[objectType] = append(d.cachedHandlers[objectType], handlerList...)
 		}
 	}
@@ -153,6 +157,7 @@ func (d *Dispatcher) AddQueues(queues ...chan interface{}) {
 	defer d.queueLock.Unlock()
 
 	d.queues = append(d.queues, queues...)
+
 	for _, q := range queues {
 		go d.dispatchQueue(q)
 	}
@@ -161,6 +166,7 @@ func (d *Dispatcher) AddQueues(queues ...chan interface{}) {
 // See AddQueue() & Dispatch()
 func (d *Dispatcher) dispatchQueue(q <-chan interface{}) {
 	var rem bool
+
 	for e := range q {
 		switch e {
 		case syncToken:
@@ -170,6 +176,7 @@ func (d *Dispatcher) dispatchQueue(q <-chan interface{}) {
 		default:
 			d.dispatchWithRecover(e)
 		}
+
 		if rem {
 			break
 		}
@@ -214,10 +221,12 @@ func (d *Dispatcher) removeQueue(q <-chan interface{}) {
 	// Might have been added multiple times (for whatever reason)
 	for r := true; r; {
 		r = false
+
 		for i := range d.queues {
 			if d.queues[i] == q {
 				d.queues = append(d.queues[:i], d.queues[i+1:]...)
 				r = true
+
 				break // reset i after changing the slice
 			}
 		}
@@ -248,22 +257,28 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 	func() {
 		d.queueLock.Lock()
 		defer d.queueLock.Unlock()
+
 		for _, q := range queues {
 			found := false
+
 			for _, dq := range d.queues {
 				if q == dq {
 					// Using sync.Cond would be a race against dispatchQueue
 					d.tokenWg.Add(1)
 					q <- token
+
 					found = true
 				}
 			}
+
 			if !found {
-				err = errors.New("One or more queues not found")
+				err = errors.New("one or more queues not found")
 			}
 		}
 	}()
+
 	d.tokenWg.Wait()
+
 	return err
 }
 
@@ -274,12 +289,13 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 func (d *Dispatcher) RegisterHandler(handler interface{}) HandlerIdentifier {
 	h := reflect.ValueOf(handler)
 	ht := h.Type()
+
 	if ht.Kind() != reflect.Func {
 		panic("Handler isn't a function")
-	}
-	if ht.NumIn() != 1 {
+	} else if ht.NumIn() != 1 {
 		panic("Handler function has more than one input parameter")
 	}
+
 	t := ht.In(0)
 
 	d.handlerLock.Lock()
@@ -288,9 +304,11 @@ func (d *Dispatcher) RegisterHandler(handler interface{}) HandlerIdentifier {
 	if d.handlers == nil {
 		d.handlers = make(map[reflect.Type]map[HandlerIdentifier]reflect.Value)
 	}
+
 	if d.handlers[t] == nil {
 		d.handlers[t] = make(map[HandlerIdentifier]reflect.Value)
 	}
+
 	handlerID := new(int)
 	d.handlers[t][handlerID] = h
 
@@ -314,6 +332,7 @@ func (d *Dispatcher) UnregisterHandler(identifier HandlerIdentifier) {
 		for id := range m {
 			if id == identifier {
 				delete(m, id)
+
 				if d.cachedHandlers != nil {
 					// Reset cache for interface handlers
 					if t.Kind() == reflect.Interface {
