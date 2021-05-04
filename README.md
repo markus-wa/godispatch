@@ -11,7 +11,7 @@ It can be used to either asynchronously dispatch queues of objects or synchronou
 
 ## Go Get
 
-	go get github.com/markus-wa/godispatch
+	go get -u github.com/markus-wa/godispatch
 
 ## Example
 ```go
