@@ -486,3 +486,30 @@ func TestPanicHandler(t *testing.T) {
 		t.Error("panic value not recovered")
 	}
 }
+
+func TestUnregisterAllHandlers(t *testing.T) {
+	t.Parallel()
+
+	d := dp.Dispatcher{}
+
+	count := 0
+	count2 := 0
+
+	d.RegisterHandler(func(string) {
+		count++
+		d.UnregisterAllHandlers()
+		d.RegisterHandler(func(string) {
+			count2++
+		})
+	})
+
+	q := make(chan interface{}, 2)
+
+	d.AddQueues(q)
+	q <- "one"
+	q <- "two"
+	q <- "three"
+
+	assert.Equal(t, 1, count)
+	assert.Equal(t, 2, count2)
+}

@@ -348,3 +348,12 @@ func (d *Dispatcher) UnregisterHandler(identifier HandlerIdentifier) {
 		}
 	}
 }
+
+// UnregisterAllHandlers removes all handlers previously registered via RegisterHandler.
+func (d *Dispatcher) UnregisterAllHandlers() {
+	d.handlerLock.Lock()
+	defer d.handlerLock.Unlock()
+
+	d.handlers = nil
+	d.cachedHandlers = nil
+}
