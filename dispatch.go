@@ -245,6 +245,8 @@ func (d *Dispatcher) SyncAllQueues() {
 	d.SyncQueues(d.queues...)
 }
 
+var ErrQueueNotFound = errors.New("one or more queues not found")
+
 // Sends a token to specific queues in the dispatcher and waits until they were handled.
 func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) error {
 	d.tokenLock.Lock()
@@ -272,7 +274,7 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 			}
 
 			if !found {
-				err = errors.New("one or more queues not found")
+				err = ErrQueueNotFound
 			}
 		}
 	}()
