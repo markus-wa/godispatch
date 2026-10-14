@@ -39,9 +39,6 @@ func TestRegisterHandlerWithOptions_UnwrappedPanicSkipsLaterHandlers(t *testing.
 		}
 	}, dp.HandlerOptions{UnwrappedPanics: true})
 
-	// Warm the cache for string before registering the second handler so the handler order is deterministic.
-	d.Dispatch("warm-up")
-
 	laterCalled := 0
 
 	d.RegisterHandler(func(string) {
