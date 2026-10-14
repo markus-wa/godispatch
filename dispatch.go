@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 )
 
@@ -29,8 +30,9 @@ type Dispatcher struct {
 	queueLock      sync.Mutex
 	tokenWg        sync.WaitGroup
 	queues         []chan interface{}
-	handlers       map[reflect.Type]map[HandlerIdentifier]handler
+	handlers       map[reflect.Type]map[HandlerIdentifier]registeredHandler
 	cachedHandlers map[reflect.Type][]handler
+	nextSeq        uint64 // registration sequence number for the next handler, guarded by handlerLock
 	panicHandler   PanicHandler
 }
 
@@ -38,6 +40,33 @@ type Dispatcher struct {
 type handler struct {
 	fn              reflect.Value
 	unwrappedPanics bool
+}
+
+// registeredHandler is a handler together with its global registration sequence number.
+// The sequence number is only needed to build the cache in registration order,
+// so it is kept out of handler to keep the cached handler list (iterated on every Dispatch) compact.
+type registeredHandler struct {
+	handler
+	seq uint64
+}
+
+// handlersBySeq sorts handlers and their sequence numbers by sequence number.
+type handlersBySeq struct {
+	handlers []handler
+	seqs     []uint64
+}
+
+func (s handlersBySeq) Len() int {
+	return len(s.handlers)
+}
+
+func (s handlersBySeq) Less(i, j int) bool {
+	return s.seqs[i] < s.seqs[j]
+}
+
+func (s handlersBySeq) Swap(i, j int) {
+	s.handlers[i], s.handlers[j] = s.handlers[j], s.handlers[i]
+	s.seqs[i], s.seqs[j] = s.seqs[j], s.seqs[i]
 }
 
 // HandlerOptions configures a handler registered via RegisterHandlerWithOptions.
@@ -157,21 +186,33 @@ func (d *Dispatcher) initCache(objectType reflect.Type) {
 		d.cachedHandlers = make(map[reflect.Type][]handler)
 	}
 
-	// Load handlers into cache
-	d.cachedHandlers[objectType] = make([]handler, 0)
-	for t := range d.handlers {
+	n := 0
+
+	for t, m := range d.handlers {
 		if objectType.AssignableTo(t) {
-			handlerList := make([]handler, len(d.handlers[t]))
-			i := 0
-
-			for _, h := range d.handlers[t] {
-				handlerList[i] = h
-				i++
-			}
-
-			d.cachedHandlers[objectType] = append(d.cachedHandlers[objectType], handlerList...)
+			n += len(m)
 		}
 	}
+
+	// Load handlers into cache
+	sorted := handlersBySeq{
+		handlers: make([]handler, 0, n),
+		seqs:     make([]uint64, 0, n),
+	}
+
+	for t, m := range d.handlers {
+		if objectType.AssignableTo(t) {
+			for _, h := range m {
+				sorted.handlers = append(sorted.handlers, h.handler)
+				sorted.seqs = append(sorted.seqs, h.seq)
+			}
+		}
+	}
+
+	// Map iteration order is random, restore the global registration order.
+	sort.Sort(sorted)
+
+	d.cachedHandlers[objectType] = sorted.handlers
 }
 
 // AddQueues adds channels as 'object-queues'.
@@ -340,11 +381,11 @@ func (d *Dispatcher) RegisterHandlerWithOptions(handlerFunc interface{}, opts Ha
 	defer d.handlerLock.Unlock()
 
 	if d.handlers == nil {
-		d.handlers = make(map[reflect.Type]map[HandlerIdentifier]handler)
+		d.handlers = make(map[reflect.Type]map[HandlerIdentifier]registeredHandler)
 	}
 
 	if d.handlers[t] == nil {
-		d.handlers[t] = make(map[HandlerIdentifier]handler)
+		d.handlers[t] = make(map[HandlerIdentifier]registeredHandler)
 	}
 
 	h := handler{
@@ -353,15 +394,25 @@ func (d *Dispatcher) RegisterHandlerWithOptions(handlerFunc interface{}, opts Ha
 	}
 
 	handlerID := new(int)
-	d.handlers[t][handlerID] = h
+	d.handlers[t][handlerID] = registeredHandler{handler: h, seq: d.nextSeq}
+	d.nextSeq++
 
 	if d.cachedHandlers != nil {
-		// Reset cache for interface handlers
 		if t.Kind() == reflect.Interface {
+			// Reset cache for interface handlers, they may match any number of cached object types.
 			d.cachedHandlers = nil
 		} else {
-			// For anything else we should be fine with adding the handler to the cache
-			d.cachedHandlers[t] = append(d.cachedHandlers[t], h)
+			// The new handler has the highest sequence number, so appending it to every already cached
+			// object type it applies to keeps the registration order.
+			// Types without a cache entry are left alone and built lazily by initCache(),
+			// appending to them here would create an entry that lacks the previously registered handlers.
+			// Appending never modifies elements visible to in-flight Dispatch() calls, which hold a shorter slice.
+			for objectType, cached := range d.cachedHandlers {
+				// objectType is nil for Dispatch(nil)
+				if objectType != nil && objectType.AssignableTo(t) {
+					d.cachedHandlers[objectType] = append(cached, h)
+				}
+			}
 		}
 	}
 
@@ -370,23 +421,35 @@ func (d *Dispatcher) RegisterHandlerWithOptions(handlerFunc interface{}, opts Ha
 
 // UnregisterHandler unregisters a handler by it's identifier (as returned by RegisterHandler() or RegisterHandlerWithOptions()).
 // Unregistering is done via identifiers because functions can't be compared in Go.
+// It may be called from inside a handler; handlers of an in-progress Dispatch() call are not affected,
+// the change applies to subsequent Dispatch() calls.
 func (d *Dispatcher) UnregisterHandler(identifier HandlerIdentifier) {
-	for t, m := range d.handlers {
-		for id := range m {
-			if id == identifier {
-				delete(m, id)
+	d.handlerLock.Lock()
+	defer d.handlerLock.Unlock()
 
-				if d.cachedHandlers != nil {
-					// Reset cache for interface handlers
-					if t.Kind() == reflect.Interface {
-						d.cachedHandlers = nil
-					} else {
-						// For anything else we can just clear the cache for that type
-						delete(d.cachedHandlers, t)
+	for t, m := range d.handlers {
+		if _, ok := m[identifier]; !ok {
+			continue
+		}
+
+		delete(m, identifier)
+
+		if d.cachedHandlers != nil {
+			if t.Kind() == reflect.Interface {
+				// Reset cache for interface handlers
+				d.cachedHandlers = nil
+			} else {
+				// For anything else we can just clear the cache for the object types the handler applies to
+				for objectType := range d.cachedHandlers {
+					// objectType is nil for Dispatch(nil)
+					if objectType != nil && objectType.AssignableTo(t) {
+						delete(d.cachedHandlers, objectType)
 					}
 				}
 			}
 		}
+
+		return
 	}
 }
 
