@@ -510,6 +510,8 @@ func TestUnregisterAllHandlers(t *testing.T) {
 	q <- "two"
 	q <- "three"
 
+	d.SyncAllQueues()
+
 	assert.Equal(t, 1, count)
 	assert.Equal(t, 2, count2)
 }
