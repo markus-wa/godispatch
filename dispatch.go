@@ -29,14 +29,31 @@ type Dispatcher struct {
 	queueLock      sync.Mutex
 	tokenWg        sync.WaitGroup
 	queues         []chan interface{}
-	handlers       map[reflect.Type]map[HandlerIdentifier]reflect.Value
-	cachedHandlers map[reflect.Type][]reflect.Value
+	handlers       map[reflect.Type]map[HandlerIdentifier]handler
+	cachedHandlers map[reflect.Type][]handler
 	panicHandler   PanicHandler
+}
+
+// handler is a registered handler func together with its per-handler options.
+type handler struct {
+	fn              reflect.Value
+	unwrappedPanics bool
+}
+
+// HandlerOptions configures a handler registered via RegisterHandlerWithOptions.
+// The zero value gives the same behaviour as RegisterHandler.
+type HandlerOptions struct {
+	// UnwrappedPanics makes panics from this handler propagate as-is instead of as ConsumerCodePanic.
+	UnwrappedPanics bool
 }
 
 // Config contains configuration parameters for a Dispatcher.
 type Config struct {
-	PanicHandler PanicHandler // A function that handles panics in goroutines created by Dispatcher.AddQueues()
+	// PanicHandler handles panics in goroutines created by Dispatcher.AddQueues().
+	// It receives the recovered value: a ConsumerCodePanic for handlers registered via RegisterHandler,
+	// or the raw panic value for handlers registered with HandlerOptions.UnwrappedPanics.
+	// If it is nil, panics are not recovered and crash the program.
+	PanicHandler PanicHandler
 }
 
 // NewDispatcherWithConfig creates a new dispatcher with a given config and returns it.
@@ -48,6 +65,7 @@ func NewDispatcherWithConfig(cfg Config) *Dispatcher {
 
 /*
 ConsumerCodePanic is the type which identifies panics in consumer code (e.g. RegisterHandler).
+Panics from handlers registered with HandlerOptions.UnwrappedPanics are not wrapped and propagate as-is.
 
 Example:
 
@@ -91,6 +109,8 @@ func (ucp consumerCodePanic) Value() interface{} {
 }
 
 // Dispatch dispatches an object to all it's handlers in the order in which the handlers were registered.
+// If a handler panics, the remaining handlers are not called and the panic propagates to the caller,
+// wrapped in a ConsumerCodePanic unless the handler was registered with HandlerOptions.UnwrappedPanics.
 func (d *Dispatcher) Dispatch(object interface{}) {
 	d.handlerLock.Lock()
 
@@ -108,7 +128,11 @@ func (d *Dispatcher) Dispatch(object interface{}) {
 	args := []reflect.Value{reflect.ValueOf(object)}
 
 	for _, h := range handlers {
-		callConsumerCode(h, args)
+		if h.unwrappedPanics {
+			h.fn.Call(args)
+		} else {
+			callConsumerCode(h.fn, args)
+		}
 	}
 }
 
@@ -130,14 +154,14 @@ func callConsumerCode(h reflect.Value, args []reflect.Value) {
 func (d *Dispatcher) initCache(objectType reflect.Type) {
 	// Read from nil map is allowed, so we initialize it only now if it's nil
 	if d.cachedHandlers == nil {
-		d.cachedHandlers = make(map[reflect.Type][]reflect.Value)
+		d.cachedHandlers = make(map[reflect.Type][]handler)
 	}
 
 	// Load handlers into cache
-	d.cachedHandlers[objectType] = make([]reflect.Value, 0)
+	d.cachedHandlers[objectType] = make([]handler, 0)
 	for t := range d.handlers {
 		if objectType.AssignableTo(t) {
-			handlerList := make([]reflect.Value, len(d.handlers[t]))
+			handlerList := make([]handler, len(d.handlers[t]))
 			i := 0
 
 			for _, h := range d.handlers[t] {
@@ -288,9 +312,21 @@ func (d *Dispatcher) sendToken(queues []chan interface{}, token interface{}) err
 // If the handler registers a new handler in the function body, the new handler will only be active for new Dispatch() calls.
 // Calling this method clears the internal type/handler mapping cache for interface handlers.
 // Returns a unique identifier which can be used to remove the handler via UnregisterHandler().
+// Panics from the handler are wrapped in a ConsumerCodePanic, see RegisterHandlerWithOptions to change this.
 func (d *Dispatcher) RegisterHandler(handler interface{}) HandlerIdentifier {
-	h := reflect.ValueOf(handler)
-	ht := h.Type()
+	return d.RegisterHandlerWithOptions(handler, HandlerOptions{})
+}
+
+// RegisterHandlerWithOptions is like RegisterHandler but allows configuring the handler via HandlerOptions.
+// The returned identifier can be used with UnregisterHandler() like any other.
+//
+// With HandlerOptions.UnwrappedPanics set, a panic inside the handler propagates out of Dispatch() with its
+// original value instead of being wrapped in a ConsumerCodePanic; handlers after it are not called.
+// For objects dispatched via queues (see AddQueues()) the raw value is passed to Config.PanicHandler,
+// or crashes the program if no PanicHandler is set (same as for wrapped panics).
+func (d *Dispatcher) RegisterHandlerWithOptions(handlerFunc interface{}, opts HandlerOptions) HandlerIdentifier {
+	fn := reflect.ValueOf(handlerFunc)
+	ht := fn.Type()
 
 	if ht.Kind() != reflect.Func {
 		panic("Handler isn't a function")
@@ -304,11 +340,16 @@ func (d *Dispatcher) RegisterHandler(handler interface{}) HandlerIdentifier {
 	defer d.handlerLock.Unlock()
 
 	if d.handlers == nil {
-		d.handlers = make(map[reflect.Type]map[HandlerIdentifier]reflect.Value)
+		d.handlers = make(map[reflect.Type]map[HandlerIdentifier]handler)
 	}
 
 	if d.handlers[t] == nil {
-		d.handlers[t] = make(map[HandlerIdentifier]reflect.Value)
+		d.handlers[t] = make(map[HandlerIdentifier]handler)
+	}
+
+	h := handler{
+		fn:              fn,
+		unwrappedPanics: opts.UnwrappedPanics,
 	}
 
 	handlerID := new(int)
@@ -327,7 +368,7 @@ func (d *Dispatcher) RegisterHandler(handler interface{}) HandlerIdentifier {
 	return handlerID
 }
 
-// UnregisterHandler unregisters a handler by it's identifier (as returned by RegisterHandler()).
+// UnregisterHandler unregisters a handler by it's identifier (as returned by RegisterHandler() or RegisterHandlerWithOptions()).
 // Unregistering is done via identifiers because functions can't be compared in Go.
 func (d *Dispatcher) UnregisterHandler(identifier HandlerIdentifier) {
 	for t, m := range d.handlers {
@@ -349,7 +390,7 @@ func (d *Dispatcher) UnregisterHandler(identifier HandlerIdentifier) {
 	}
 }
 
-// UnregisterAllHandlers removes all handlers previously registered via RegisterHandler.
+// UnregisterAllHandlers removes all handlers previously registered via RegisterHandler or RegisterHandlerWithOptions.
 func (d *Dispatcher) UnregisterAllHandlers() {
 	d.handlerLock.Lock()
 	defer d.handlerLock.Unlock()
